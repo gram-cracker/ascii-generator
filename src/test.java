@@ -1,9 +1,10 @@
 import java.io.File;
 
 import com.project.Converter;
+import javax.imageio.*;
 
 public class test {
-    public static void main(String[] args) {
+    public static void main2(String[] args) {
         // VVV for char image production
         // try {
         //     File file = new File("res/master.jpg");
@@ -32,5 +33,9 @@ public class test {
         // System.out.println(img);
         Converter.printVid(vid, 0, false);
         System.out.print("Processing: " + (proc) + " ms Print: " + (System.currentTimeMillis()-start) + " ms");
+    }
+    public static void main(String[] args) {
+        Converter.getChars();
+        try{System.out.print(Converter.chars[0]);} catch (Exception e) {e.printStackTrace();}
     }
 }

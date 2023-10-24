@@ -1,35 +1,63 @@
 package com.project;
 import java.io.*;
+import java.net.URI;
 import java.awt.image.*;
 import javax.imageio.*;
 import java.util.*;
+import java.net.URL;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
 import org.bytedeco.javacv.Java2DFrameConverter;
 
 public class Converter {
-    public static String convertImage(BufferedImage raw, String output, boolean color, boolean background, int tune, int scale) {
+    public static BufferedImage[] chars = new BufferedImage[95];
+
+    public static void getChars() {
+        if (chars[0] == null) {
+            try { try {
+                for (int i = 32; i < 127; i++) {
+                    chars[i-32] = ImageIO.read(Class.forName("Converter").getResourceAsStream("src/res/chars/" + i + ".png"));
+                }
+            } catch (ClassNotFoundException e) {
+                int i = 68;
+                for(File file : new File("src/res/chars").listFiles()) {
+                    chars[i] = ImageIO.read(file);
+                    if (i == 126-32) i = -1;
+                    i++;
+                }
+            }} catch (Exception e) {e.printStackTrace();}
+        }
+    }
+
+    public static String convertImage(BufferedImage raw, String output, boolean color, boolean background, int tune, double scale) {
         // String type = input.getName().substring(input.getName().indexOf("."));
         // if (type != ".jpg" || type != ".png") return "";
         try {
-            File[] chars = new File("res/chars").listFiles();
+            // Map<String, InputStream> chars = new HashMap<String, InputStream>();
+            getChars();
             String str = "\u001b[39;49m";
-            if (scale != 1) raw = scale(raw, scale);
-            BufferedImage img = contrast(gaussFilter(grayscale(edgeDetection(raw, true, tune))), 255, 32);
+            if (scale != 1.0) raw = scale(raw, scale);
+            BufferedImage img = contrast(grayscale(gaussFilter(edgeDetection(gaussFilter(raw), true, tune))), 255, 64);
+            if (!background) img = grayscale(combine(img, raw));
             for (int h = 0; h < img.getHeight()-24; h += 24){
                 for (int w = 0; w < img.getWidth()-12; w += 12) {
                     BufferedImage subimg = img.getSubimage(w, h, 12, 24);
                     int chr = 0;
                     int leastDif = Integer.MAX_VALUE;
-                    for (File file : chars) {
-                        if (file.getName() != "32" && !background) {
-                            int dif = compare(subimg, ImageIO.read(file));
+                    int name = 31;
+                    for (BufferedImage file : chars) {
+                        name++;
+                        if (name != 32 || background) {
+                            int dif = compare(subimg, file);
                             if (dif < leastDif) {
                                 leastDif = dif;
-                                chr = Integer.parseInt(file.getName().substring(0,file.getName().indexOf(".")));
+                                // chr = Integer.parseInt(file.getName().substring(0,file.getName().indexOf(".")));
+                                chr = name;
+                                // System.out.print(chr + ":" + dif + " ");
                             }
                         }
                     }
+                    // System.out.println();
                     if (color) str += colorCode(getColorAvg(raw.getSubimage(w, h, 12, 24)),!background);
                     str += String.valueOf((char)chr);
                 }
@@ -38,7 +66,7 @@ public class Converter {
             }
             str += "\u001b[39;49m";
             if (output != null) {
-                FileOutputStream thing = new FileOutputStream(new File("res/Output/" + output));
+                FileOutputStream thing = new FileOutputStream(new File("src/res/Output/" + output));
                 thing.write(str.getBytes());
                 thing.close();
             }
@@ -49,14 +77,14 @@ public class Converter {
         }
     }
 
-    public static String convertImage(File file, String output, boolean color, boolean background, int tune, int scale) {
+    public static String convertImage(File file, String output, boolean color, boolean background, int tune, double scale) {
         try {
             BufferedImage raw = ImageIO.read(file);
             return convertImage(raw, output, color, background, tune, scale);
         } catch (Exception e) {e.printStackTrace(); return "";}
     }
 
-    public static String convertVideo(File input, String output, boolean color, boolean background, int tune, int scale, double frate, double start, double end) {
+    public static String convertVideo(File input, String output, boolean color, boolean background, int tune, double scale, double frate, double start, double end) {
         FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(input.getAbsoluteFile());
         Java2DFrameConverter conv = new Java2DFrameConverter();
         String out = "";
@@ -65,19 +93,19 @@ public class Converter {
             double rate = (grabber.getFrameRate()/frate);
             grabber.setVideoFrameNumber((int)(grabber.getFrameRate()*start));
             int len = (int)((end-start)*grabber.getFrameRate());
-            System.out.println(rate);
+            System.out.println("Rate scale:" + rate);
             out += "<meta>" + frate + "</meta>";
             for (double i = 0; i < len; i += rate) {
-                System.out.println(i/rate);
+                System.out.println("frame:" + i/rate);
                 grabber.setVideoFrameNumber((int)i);
                 BufferedImage img = conv.convert(grabber.grab());
-                if (img != null) out += "\u001b[H\u001b[2J" + convertImage(img, null, color, background, tune, scale) + "\r";
+                if (img != null) out += "\u001b[H" /*+"\u001b[2J"*/ + convertImage(img, null, color, background, tune, scale) + "\r";
             }
             grabber.stop();
         } catch (Exception e) {e.printStackTrace();}
         try {
             if (output != null) {
-                FileOutputStream thing = new FileOutputStream(new File("res/Output/" + output));
+                FileOutputStream thing = new FileOutputStream(new File("src/res/Output/" + output));
                 thing.write(out.getBytes());
                 thing.close();
             }
@@ -89,12 +117,14 @@ public class Converter {
     public static BufferedImage combine(BufferedImage a, BufferedImage b){
         for (int h = 0; h < a.getHeight(); h++) {
             for (int w = 0; w < a.getWidth(); w++) {
-                int avg = (pixelAvg(a.getRGB(w, h), true) + pixelAvg(b.getRGB(w, h), true))&0xff;
+                int avg = (pixelAvg(a.getRGB(w, h), true) + pixelAvg(b.getRGB(w, h), true));
+                if (avg > 255) avg = 255;
+                else if (avg < 0) avg = 0;
                 a.setRGB(w, h, ((avg)|(avg<<8)|(avg<<16)));
             }
         }
         try {
-            System.out.println("c:" + ImageIO.write(a, "jpg", new File("res/Output/comb.jpg")));
+            System.out.println("c:" + ImageIO.write(a, "jpg", new File("src/res/Output/comb.jpg")));
         } catch (Exception e) {e.printStackTrace();}
         return a;
     }
@@ -118,9 +148,9 @@ public class Converter {
         BufferedImage out;
         if (gauss) out = convolution(gaussFilter(input), kernels, thresh, true);
         else out = convolution((input), kernels, thresh, true);
-        try {
-            System.out.println("e:" + ImageIO.write(out, "jpeg", new File("res/Output/edge.jpg")));
-        } catch (IOException e) {e.printStackTrace();}
+        // try {
+        //     System.out.println("e:" + ImageIO.write(out, "jpeg", new File("src/res/Output/edge.jpg")));
+        // } catch (IOException e) {e.printStackTrace();}
         return out;
     }
 
@@ -132,9 +162,9 @@ public class Converter {
             {4/159.0,9/159.0,12/159.0,9/159.0,4/159.0},
             {2/159.0,4/159.0,5/159.0,4/159.0,2/159.0}};
         BufferedImage g = convolution(input, gauss, 0);
-        try {
-            System.out.println("g:" + ImageIO.write(g, "jpeg", new File("res/Output/gauss.jpg")));
-        } catch (IOException e) {e.printStackTrace();}
+        // try {
+        //     System.out.println("g:" + ImageIO.write(g, "jpeg", new File("src/res/Output/gauss.jpg")));
+        // } catch (IOException e) {e.printStackTrace();}
         return g;
     }
 
@@ -210,9 +240,9 @@ public class Converter {
                 img.setRGB(w,h,fin);
             }
         }
-        try {
-            ImageIO.write(img, "jpg", new File("res/Output/cont.jpg"));
-        } catch (Exception e) {}
+        // try {
+        //     ImageIO.write(img, "jpg", new File("src/res/Output/cont.jpg"));
+        // } catch (Exception e) {}
         return img;
     }
 
@@ -222,9 +252,9 @@ public class Converter {
             pixels[i] = pixelAvg(pixels[i], false);
         }
         img.setRGB(0, 0, img.getWidth(), img.getHeight(), pixels, 0, img.getWidth());
-        try {
-            ImageIO.write(img, "jpg", new File("res/Output/gray.jpg"));
-        } catch (Exception e) {}
+        // try {
+        //     ImageIO.write(img, "jpg", new File("src/res/Output/gray.jpg"));
+        // } catch (Exception e) {}
         return img;
     }
 
@@ -276,14 +306,17 @@ public class Converter {
             int dif = 0;
             for (int h = 0; h < img1.getHeight(); h++) {
                 for (int w = 0; w < img1.getWidth(); w++) {
-                    int rgb1 = img1.getRGB(w, h);
-                    int rgb2 = img2.getRGB(w, h);
-                    for (int i = 0; i < 24; i += 8) {
-                        int val1 = (rgb1>>i)&0xff;
-                        int val2 = (rgb2>>i)&0xff;
-                        // if (val1 == 0 || val2 == 0) dif += 16384;
-                        dif += (val1-val2)*(val1-val2);
-                    }
+                    // int rgb1 = img1.getRGB(w, h);
+                    // int rgb2 = img2.getRGB(w, h);
+                    // for (int i = 0; i < 24; i += 8) {
+                    //     int val1 = (rgb1>>i)&0xff;
+                    //     int val2 = (rgb2>>i)&0xff;
+                    //     // if (val1 == 0 || val2 == 0) dif += 16384;
+                    //     dif += (val1-val2)*(val1-val2);
+                    // }
+                    int val1 = pixelAvg(img1.getRGB(w, h), true);
+                    int val2 = pixelAvg(img2.getRGB(w, h), true);
+                    dif += (val1-val2)*(val1-val2);
                 }
             }
             return dif;
@@ -301,6 +334,10 @@ public class Converter {
         return str;
     }
 
+    public static String readTxt(String txt) throws FileNotFoundException{
+        return readTxt(new File(txt));
+    }
+
     public static void printVid(String vid, double rate, boolean loop) {
         do{
             Scanner scan = new Scanner(vid);
@@ -312,78 +349,73 @@ public class Converter {
             scan.useDelimiter("\r");
             while (scan.hasNext()) {
                 System.out.print(scan.next());
-                try{Thread.sleep((int)(1000/rate)-20);}catch(Exception e) {}
+                try{Thread.sleep((int)(1000.0/rate-5.5));}catch(Exception e) {}
             }
             scan.close();
         }while (loop);
     }
 
     public static void main(String[] args) {
-        // VVV for char image production
-        // try {
-        //     File file = new File("res/master.jpg");
-        //     file.setReadable(true);
-        //     System.out.println(file.getPath()+ " " + file.canRead());
-        //     BufferedImage master = ImageIO.read(file);
-        //     int name = 32;
-        //     for (int w = 0; w < master.getWidth()-1; w += 12) {
-        //         if (name < 65 || name > 122) ImageIO.write(grayscale(master.getSubimage(w, 0, 12, 24)), "png", new File("noletter/" + name + ".png"));
-        //         name++;
-        //     }
-        // } catch (Exception e) {e.printStackTrace();}
-        long start = System.currentTimeMillis(); 
-        String img = "";
-        String vid = "";
-        // try{ vid = readTxt(new File("res/Output/vid.txt"));}catch (Exception e) {e.printStackTrace();}
-        File file = new File("C:/Users/graha/Downloads/earth2.mp4");
-        // int tune = 32;
-        // try{ vid = convertVideo(file, "vid.txt", true, tune, 1, 5.0, 0.0, 6.0);} catch (Exception e) {e.printStackTrace();}
-        // img = convertImage(file, "crackers.txt", true, tune, 1);
-        // img = convertImage(file, "bw.txt", false, tune, 1);
-        // try{ img = readTxt(new File("Output/crackers.txt"));} catch (FileNotFoundException e) {}
-        // try{contrast(ImageIO.read(new File("C:/Users/graha/Downloads/crackers.jpg")), 128);} catch (Exception e) {e.printStackTrace();}
-        long proc = System.currentTimeMillis()-start;
-        start = System.currentTimeMillis();
-        printVid(vid, 0, false);
-        System.out.print("Processing: " + (proc) + " ms Print: " + (System.currentTimeMillis()-start) + " ms");
         try{
             Scanner in = new Scanner(System.in);
             System.out.print("Input File: ");
             String input = in.next();
+            System.out.println(input);
             String media;
             double rate = 0;
-            if (input.substring(input.indexOf(".")) == ".txt") {
+            long start = 0;
+            boolean txt = input.contains(".txt");
+            if (input.contains(".txt")) {
+                start = System.currentTimeMillis();
                 media = readTxt(new File(input));
             } else {
                 int tune = 32;
-                int scale = 1;
+                double scale = 1;
                 boolean color = true;
+                boolean back = true;
                 System.out.print("Default Options? (y/n) ");
-                if (in.next() == "n") {
+                if (in.next().equals("n")) {
                     System.out.print("Tune: ");
                     tune = in.nextInt();
                     System.out.print("Scale: ");
-                    scale = in.nextInt();
+                    scale = in.nextDouble();
                     System.out.print("Color? (y/n) ");
                     if (in.next() == "n") color = false;
-                    System.out.print("Frame Rate: ");
-                    rate = in.nextDouble();
+                    System.out.print("Background color? (y/n) ");
+                    if (in.next() == "n") color = false;
                 }
                 System.out.print("Output File (null if none): ");
                 String output = in.next();
                 System.out.print("Video? (y/n) ");
-                if (in.next() == "y"){
+                String vid = in.next();
+                if (vid.equals("y")){
                     System.out.println("Beginning/End:");
                     double beg = in.nextDouble();
                     double end = in.nextDouble();
                     System.out.print("Frame Rate: ");
                     double frate = in.nextDouble();
-                    media = convertVideo(new File(input), output, true, false, tune, scale, frate, beg, end);
+                    start = System.currentTimeMillis();
+                    media = convertVideo(new File(input), output, color, back, tune, scale, frate, beg, end);
                 } else {
-                    media = convertImage(new File(input), output, true, false, tune, scale);
+                    start = System.currentTimeMillis();
+                    media = convertImage(new File(input), output, color, back, tune, scale);
                 }
             }
-            if (media.indexOf("<meta>") == 0) printVid(media, proc, false);
+            if (media.contains("<meta>")) {
+                System.out.print("Frame Rate (0 for default): ");
+                double framerate = in.nextDouble();
+                System.out.println("Processing time: " + (System.currentTimeMillis()-start) + " ms");
+                start = System.currentTimeMillis();
+                printVid(media, framerate, false);
+                System.out.println("Printing time: " + (System.currentTimeMillis()-start) + " ms");
+
+            } else {
+                System.out.println("Processing time: " + (System.currentTimeMillis()-start) + " ms");
+                start = System.currentTimeMillis();
+                System.out.print(media);
+                System.out.println("Printing time: " + (System.currentTimeMillis()-start) + " ms");
+            }
+            in.close();
         } catch (Exception e) {e.printStackTrace();}
     }
 }
