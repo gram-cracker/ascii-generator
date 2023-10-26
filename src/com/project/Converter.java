@@ -66,7 +66,7 @@ public class Converter {
             }
             str += "\u001b[39;49m";
             if (output != null) {
-                FileOutputStream thing = new FileOutputStream(new File("src/res/Output/" + output));
+                FileOutputStream thing = new FileOutputStream(new File(output));
                 thing.write(str.getBytes());
                 thing.close();
             }
@@ -262,7 +262,38 @@ public class Converter {
         BufferedImage out = new BufferedImage((int) (img.getWidth()*scale), (int) (img.getHeight()*scale), img.getType());
         for (int h = 0; h < out.getHeight(); h++) {
             for (int w = 0; w < out.getWidth(); w++) {
-                out.setRGB(w, h, img.getRGB((int)(w/scale), (int)(h/scale)));
+                double[] rgba = new double[4];
+                double ysum = 0;
+                // if (h==0) System.out.println("check");
+                while (ysum<1) {
+                    double sy = h%scale;
+                    if (sy==0 || ysum!=0) sy = scale;
+                    if (ysum+scale>1) sy = 1 - ysum; // extra bit on edge of pixel
+                    if (sy > 1) sy = 1; //scale up
+                    double xsum = 0;
+                    // if (h==0) System.out.println("check");
+                    while(xsum < 1) {
+                        double sx = w%scale;
+                        if (sx==0 || xsum!=0) sx = scale;
+                        if (xsum+scale>1) sx = 1 - xsum; // extra bit on edge of pixel
+                        if (sx > 1) sx = 1; //scale up
+                        try{
+                            int rgb = img.getRGB((int)(1/scale*(w+xsum)), (int)(1/scale*(h+ysum)));
+                            // if (h==0) System.out.println("check get");
+                            for (int i = 0; i<4; i++) {
+                                rgba[i] += sy*sx*(rgb>>(i*8)&0xff);
+                                if (rgba[i] > 255.0) rgba[i] = 255.0;
+                            }
+                        }catch(Exception e) {e.printStackTrace();}
+                        // if (h==1 && w==1) System.out.println(sx + " " + sy);
+                        xsum += sx;
+                    }
+                    // if (h==0) System.out.println("check");
+                    ysum += sy;
+                }
+                // if (h==0) System.out.println("check");
+                out.setRGB(w,h,((int)rgba[3]<<24)|((int)rgba[2]<<16)|((int)rgba[1]<<8)|((int)rgba[0]));
+                // out.setRGB(w, h, img.getRGB((int)(w/scale), (int)(h/scale)));
             }
         }
         return out;

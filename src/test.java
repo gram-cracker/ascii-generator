@@ -1,3 +1,4 @@
+import java.awt.image.BufferedImage;
 import java.io.File;
 
 import com.project.Converter;
@@ -35,7 +36,11 @@ public class test {
         System.out.print("Processing: " + (proc) + " ms Print: " + (System.currentTimeMillis()-start) + " ms");
     }
     public static void main(String[] args) {
-        Converter.getChars();
-        try{System.out.print(Converter.chars[0]);} catch (Exception e) {e.printStackTrace();}
+        try{
+            BufferedImage img = ImageIO.read(new File("src/res/Output/edge.jpg"));
+            BufferedImage scl = Converter.scale(Converter.scale(img, 2),.5);
+            System.out.print(Converter.compare(img, scl));
+            ImageIO.write(scl, "jpg", new File("src/res/Output/scale.jpg"));
+        } catch (Exception e) {e.printStackTrace();}
     }
 }
