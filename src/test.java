@@ -1,8 +1,9 @@
 import java.awt.image.BufferedImage;
 import java.io.File;
 
-import com.project.Converter;
 import javax.imageio.*;
+
+import com.asciigen.Converter;
 
 public class test {
     public static void main2(String[] args) {
@@ -38,8 +39,8 @@ public class test {
     public static void main(String[] args) {
         try{
             BufferedImage img = ImageIO.read(new File("src/res/Output/edge.jpg"));
-            BufferedImage scl = Converter.scale(Converter.scale(img, 2),.5);
-            System.out.print(Converter.compare(img, scl));
+            BufferedImage scl = Converter.scale(img,.69);
+            // System.out.print(Converter.compare(img, scl));
             ImageIO.write(scl, "jpg", new File("src/res/Output/scale.jpg"));
         } catch (Exception e) {e.printStackTrace();}
     }
