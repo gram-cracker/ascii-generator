@@ -1,26 +1,25 @@
 package com.asciigen;
+
 import java.io.*;
-import java.net.URI;
 import java.awt.image.*;
 import javax.imageio.*;
 import java.util.*;
-import java.net.URL;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
-import org.bytedeco.javacv.Frame;
 import org.bytedeco.javacv.Java2DFrameConverter;
 
 public class Converter {
     public static BufferedImage[] chars = new BufferedImage[95];
 
+    // Generate char array
     public static void getChars() {
         if (chars[0] == null) {
             try { try {
                 for (int i = 32; i < 127; i++) {
-                    chars[i-32] = ImageIO.read(Class.forName("Converter").getResourceAsStream("src/res/chars/" + i + ".png"));
+                    chars[i-32] = ImageIO.read(Class.forName("Converter").getResourceAsStream("bin/res/chars/" + i + ".png"));
                 }
             } catch (ClassNotFoundException e) {
                 int i = 68;
-                for(File file : new File("src/res/chars").listFiles()) {
+                for(File file : new File("bin/res/chars").listFiles()) {
                     chars[i] = ImageIO.read(file);
                     if (i == 126-32) i = -1;
                     i++;
@@ -29,16 +28,20 @@ public class Converter {
         }
     }
 
+    // Convert image/video to String and possible write to txt file
     public static String convertImage(BufferedImage raw, String output, boolean color, boolean background, int tune, double scale) {
         // String type = input.getName().substring(input.getName().indexOf("."));
         // if (type != ".jpg" || type != ".png") return "";
         try {
             // Map<String, InputStream> chars = new HashMap<String, InputStream>();
             getChars();
-            String str = "\u001b[39;49m";
+            String str = "\u001b[0m\u001b7";
             if (scale != 1.0) raw = scale(raw, scale);
             BufferedImage img = grayscale(contrast(/*gaussFilter*/(edgeDetection(raw, true, tune)), 255, 64));
-            if (!background) img = grayscale(combine(img, raw));
+            if (!background) img = grayscale(contrast(combine(img, raw), 64,24));
+            // String colstr = "";
+            int prevRGB = 0;
+            int thresh = 5;
             for (int h = 0; h <= img.getHeight()-24; h += 24){
                 for (int w = 0; w <= img.getWidth()-12; w += 12) {
                     BufferedImage subimg = img.getSubimage(w, h, 12, 24);
@@ -58,15 +61,26 @@ public class Converter {
                         }
                     }
                     // System.out.println();
-                    if (color) str += colorCode(getColorAvg(raw.getSubimage(w, h, 12, 24)),!background);
-                    str += String.valueOf((char)chr);
+                    if (color) {
+                        // String coltemp = colorCode(getColorAvg(raw.getSubimage(w, h, 12, 24)),!background);
+                        // if (!coltemp.equals(colstr)) {
+                        //     str+=coltemp;
+                        //     colstr = coltemp;
+                        // }
+                        int rgb = getColorAvg(raw.getSubimage(w, h, 12, 24));
+                        if (Math.abs(((rgb>>(0))&0xff)-((prevRGB>>(0))&0xff))>thresh || Math.abs(((rgb>>(8))&0xff)-((prevRGB>>(8))&0xff))>thresh || Math.abs(((rgb>>(16))&0xff)-((prevRGB>>(16))&0xff))>thresh || Math.abs(((rgb>>(24))&0xff)-((prevRGB>>(24))&0xff))>thresh) {
+                            str += colorCode(rgb, !background)+String.valueOf((char)chr);
+                            prevRGB = rgb;
+                        } else str += String.valueOf((char)chr);
+                    } else str += String.valueOf((char)chr);
                 }
-                if(color) str += "\u001b[39;49m";
-                str += "\n";
+                str += ((color)?("\u001b[m"):("")) + "\n\u001b8\u001b[B\u001b7";
+                // str += "\n";
+                prevRGB = 0; 
             }
-            str += "\u001b[39;49m";
             if (output != null) {
-                FileOutputStream thing = new FileOutputStream(new File(output));
+                new File("Output/").mkdirs();
+                FileOutputStream thing = new FileOutputStream(new File("Output/" + output), false);
                 thing.write(str.getBytes());
                 thing.close();
             }
@@ -93,19 +107,27 @@ public class Converter {
             double rate = (grabber.getFrameRate()/frate);
             grabber.setVideoFrameNumber((int)(grabber.getFrameRate()*start));
             int len = (int)((end-start)*grabber.getFrameRate());
+            int width = (int) (((scale*grabber.getImageWidth()-8)/12));
+            int height = (int) (((scale*grabber.getImageHeight()-8)/24));
             System.out.println("Rate scale:" + rate);
-            out += "<meta>" + frate + "</meta>";
+            System.out.println("Width: " + width + "\nHeight: " + height);
+            out += "<meta> " + frate + " " + width + " " + height + " </meta> ";
+            // out += "<meta> " + frate + " " + width + " " + height + " </meta> \u001b7";
+            Timer timer = new Timer();
             for (double i = 0; i < len; i += rate) {
-                System.out.println("frame:" + i/rate);
+                System.out.print("frame:" + (int)(i/rate+0.5));
                 grabber.setVideoFrameNumber((int)i);
                 BufferedImage img = conv.convert(grabber.grab());
-                if (img != null) out += "\u001b[H" /*+"\u001b[2J"*/ + convertImage(img, null, color, background, tune, scale) + "\r";
+                if (img != null) out += "\u001b[" + (height) + "F"/*+"\u001b[2J"*/ + convertImage(img, null, color, background, tune, scale) + "\r";
+                // if (img != null) out += "\u001b8"/*+"\u001b[2J"*/ + convertImage(img, null, color, background, tune, scale) + "\r";
+                System.out.println(" time:" + (timer.split()) + "ms");
             }
             grabber.stop();
         } catch (Exception e) {e.printStackTrace();}
         try {
             if (output != null) {
-                FileOutputStream thing = new FileOutputStream(new File("src/res/Output/" + output));
+                new File("Output/").mkdirs();
+                FileOutputStream thing = new FileOutputStream(new File("Output/" + output));
                 thing.write(out.getBytes());
                 thing.close();
             }
@@ -128,8 +150,12 @@ public class Converter {
 
     public static String convertVideo(File input, String output, boolean color, boolean background, int tune, int width, double frate, double start, double end) {
         FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(input);
-        double scale = (double)(width*12)/grabber.getImageWidth();
-        try {grabber.close();}catch(Exception e) {}
+        double scale = 1;
+        try {
+            grabber.start();
+            scale = (double)(width*12 + 10)/grabber.getImageWidth();
+            grabber.close();
+        } catch(Exception e) {}
         return convertVideo(input,output,color,background,tune,scale,frate,start,end);
     }
     
@@ -343,6 +369,7 @@ public class Converter {
         return out;
     }
 
+
     public static String colorCode(int rgb, boolean foreground) {
         if (foreground) {
             return "\u001b[38;2;" + ((rgb >> 16) & 0xff) + ";" + ((rgb >> 8) & 0xff) + ";" + (rgb & 0xff) + "m";
@@ -390,35 +417,118 @@ public class Converter {
         return readTxt(new File(txt));
     }
 
+    public static String optimizeVid(String str) {
+        Timer timer = new Timer();
+        String out = "";
+        String esc = "" + (char)27 + (char) 91;
+        Scanner scan = new Scanner(str);
+        scan.useDelimiter("\r");
+        String prev = scan.next();
+        out += prev + "\r";
+        prev = prev.substring(prev.indexOf("</meta>")+8);
+        String prefix = prev.substring(0, 13);
+        prev = prev.substring(13);
+        while(scan.hasNext()) {
+            String curr = scan.next().substring(13);
+            String frame = prefix;
+            String ccolor = "";
+            String pcolor = "";
+            int ci = 0;
+            int pi = 0;
+            int xoffset = 0;
+            // int yoffset = 0;
+            while(ci<curr.length()-8 && pi<prev.length()-8) {
+                int pci = ci;
+                int ppi = pi;
+                if (curr.substring(ci,ci+2).equals(esc)) {
+                    ci = curr.indexOf("m", ci) + 2;
+                    ccolor = curr.substring(pci, ci-1);
+                }
+                else ci += 1;
+                if (prev.substring(pi,pi+2).equals(esc)) {
+                    pi = prev.indexOf("m", pi) + 2;
+                    pcolor = prev.substring(ppi, pi-1);
+                }
+                else pi += 1;
+                if (curr.substring(pci, ci).equals(""+(char) 10)) {
+                    // ci+=1;
+                    // pi+=1;
+                    xoffset = 0;
+                    frame += "\n";
+                } else if (curr.substring(pci, ci).equals(prev.substring(ppi, pi)) && pcolor.equals(ccolor)) {
+                    xoffset += 1;
+                } else {
+                    if (xoffset != 0) {
+                        frame += esc + xoffset + "C";
+                        if (ci-pci == 1) frame += ccolor;
+                    }
+                    xoffset = 0;
+                    frame += curr.substring(pci, ci);
+                }
+            }
+            prev = curr;
+            out += frame + "\r";
+        }
+        scan.close();
+        System.out.println("Optimization time: " + (timer.time()) + " ms");
+        return out + "\u001b[0m";
+    }
+
+    public static String optimizeVid(File file, boolean vid) throws FileNotFoundException, IllegalArgumentException, IOException {
+        if (!file.getName().substring(file.getName().indexOf(".")).equals(".txt")) throw new IllegalArgumentException();
+        Scanner in = new Scanner(file);
+        in.useDelimiter("\\Z");
+        String str = optimizeVid(in.next());
+        in.close();
+        FileOutputStream thing = new FileOutputStream(file);
+        thing.write(str.getBytes());
+        thing.close();
+        return str;
+    }
+
+    //Print video frames at desired speed
     public static void printVid(String vid, double rate, boolean loop) {
         do{
             Scanner scan = new Scanner(vid);
-            scan.useDelimiter("</meta>");
-            String meta = scan.next();
+            scan.useDelimiter(" ");
+            scan.next();
+            // String meta = scan.next();
             if (rate == 0) {
-                rate = Double.valueOf(meta.substring(meta.indexOf(">")+1));
-            }
+                rate = scan.nextDouble();
+                // rate = Double.valueOf(meta.substring(meta.indexOf(">")+1));
+            } else scan.next();
+            int width = scan.nextInt();
+            int height = scan.nextInt();
+            for (int i = 0; i<height; i++) System.out.println();
+            scan.next();
             scan.useDelimiter("\r");
-            while (scan.hasNext()) {
+            rate = (1000/rate-0*(double)width*0.25);
+            // int i = 0;
+            do {
+                long start = System.currentTimeMillis();
                 System.out.print(scan.next());
-                try{Thread.sleep((int)(1000.0/rate-5.5));}catch(Exception e) {}
-            }
+                int wait = (int)((rate)+start-System.currentTimeMillis());
+                try{Thread.sleep((wait>0)?wait:0);} catch(Exception e) {e.printStackTrace();}
+                // i++;
+            } while (scan.hasNext());
             scan.close();
+            // System.out.println(rate+" "+width+" "+height + " ");
+            // System.out.println(width);
         }while (loop);
     }
 
     public static void main(String[] args) {
         try{
+            Timer timer = new Timer();
             Scanner in = new Scanner(System.in);
             System.out.print("Input File: ");
             String input = in.next();
             System.out.println(input);
             String media;
             double rate = 0;
-            long start = 0;
             boolean txt = input.contains(".txt");
             if (input.contains(".txt")) {
-                start = System.currentTimeMillis();
+                timer.split();
                 media = readTxt(new File(input));
             } else {
                 int tune = 32;
@@ -453,30 +563,59 @@ public class Converter {
                     double end = in.nextDouble();
                     System.out.print("Frame Rate: ");
                     double frate = in.nextDouble();
-                    start = System.currentTimeMillis();
+                    timer.split();
                     if (wid != 0) media = convertVideo(new File(input), output, color, back, tune, wid, frate, beg, end);
                     else media = convertVideo(new File(input), output, color, back, tune, scale, frate, beg, end);
                 } else {
-                    start = System.currentTimeMillis();
+                    timer.split();
                     if (wid != 0) media = convertImage(new File(input), output, color, back, tune, wid);
                     else media = convertImage(new File(input), output, color, back, tune, scale);
                 }
             }
             if (media.contains("<meta>")) {
-                System.out.print("Frame Rate (0 for default): ");
+                System.out.println("Processing time: " + timer.split() + " ms");
+                System.out.print("Frame Rate (0 for encoded): ");
                 double framerate = in.nextDouble();
-                System.out.println("Processing time: " + (System.currentTimeMillis()-start) + " ms");
-                start = System.currentTimeMillis();
+                timer.split();
                 printVid(media, framerate, false);
-                System.out.println("Printing time: " + (System.currentTimeMillis()-start) + " ms");
+                System.out.println("Printing time: " + timer.split() + " ms");
 
             } else {
-                System.out.println("Processing time: " + (System.currentTimeMillis()-start) + " ms");
-                start = System.currentTimeMillis();
+                System.out.println("Processing time: " + timer.split() + " ms");
                 System.out.print(media);
-                System.out.println("Printing time: " + (System.currentTimeMillis()-start) + " ms");
+                System.out.println("Printing time: " + timer.split() + " ms");
             }
             in.close();
         } catch (Exception e) {e.printStackTrace();}
+    }
+}
+
+// Timer
+class Timer {
+    private long startTime;
+    private long splitTime;
+
+    public Timer() {
+        startTime = splitTime = System.currentTimeMillis();
+    }
+
+    public long restart() {
+        long tempTime = startTime;
+        startTime = splitTime = System.currentTimeMillis();
+        return startTime - tempTime;
+    }
+
+    public long time() {
+        return System.currentTimeMillis()-startTime;
+    }
+
+    public long splitTime() {
+        return System.currentTimeMillis()-splitTime;
+    }
+
+    public long split() {
+        long tempTime = splitTime;
+        splitTime = System.currentTimeMillis();
+        return splitTime-tempTime;
     }
 }
